@@ -1,0 +1,86 @@
+# Every push runs all four workflows, so one push produces each kind of notification:
+#
+#   success-workflow   build → test → package        workflow succeeded, job succeeded
+#   failure-workflow   lint → unit-tests (fails)     workflow failed, job failed, "Rerun failed jobs"
+#   approval-workflow  build → hold → deploy         approval required, approve from Teams
+#   cancel-workflow    long-running (5 min)          cancel it in CircleCI → workflow canceled
+version: 2.1
+
+executors:
+  tiny:
+    docker:
+      - image: cimg/base:current
+    resource_class: small
+
+jobs:
+  pass:
+    executor: tiny
+    parameters:
+      message:
+        type: string
+        default: "ok"
+    steps:
+      - run:
+          name: Pass
+          command: echo "<< parameters.message >>"
+
+  fail:
+    executor: tiny
+    steps:
+      - run:
+          name: Fail on purpose
+          command: |
+            echo "This job fails on purpose to test failure notifications."
+            exit 1
+
+  long-running:
+    executor: tiny
+    steps:
+      - run:
+          name: Wait 5 minutes (cancel this workflow in CircleCI)
+          command: sleep 300
+
+workflows:
+  success-workflow:
+    jobs:
+      - pass:
+          name: build
+          message: "Building"
+      - pass:
+          name: test
+          message: "Testing"
+          requires: [build]
+      - pass:
+          name: package
+          message: "Packaging"
+          requires: [test]
+
+  failure-workflow:
+    jobs:
+      - pass:
+          name: lint
+          message: "Linting"
+      - fail:
+          name: unit-tests
+          requires: [lint]
+      - pass:
+          name: publish
+          message: "Never runs because unit-tests fails"
+          requires: [unit-tests]
+
+  approval-workflow:
+    jobs:
+      - pass:
+          name: build-release
+          message: "Building release"
+      - hold:
+          type: approval
+          requires: [build-release]
+      - pass:
+          name: deploy
+          message: "Deploying after approval"
+          requires: [hold]
+
+  cancel-workflow:
+    jobs:
+      - long-running
